@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import urllib.request
 
 BASE = Path(__file__).resolve().parent
-loader = importlib.machinery.SourceFileLoader('tunnel_gui', str(BASE / 'tunnel_gui.pyw'))
+loader = importlib.machinery.SourceFileLoader('tunnel_gui', str(BASE / 'legacy_tk.py'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 app = importlib.util.module_from_spec(spec)
 loader.exec_module(app)
@@ -152,8 +152,13 @@ def ui():
         pass
     from PIL import Image
     import m3_ui
+    import tempfile
+    from unittest.mock import patch
+    preferences_dir = tempfile.TemporaryDirectory(prefix='tunnel-settings-test-')
+    preferences_path = Path(preferences_dir.name)/'appearance.json'
     root = tk.Tk()
-    gui = app.TunnelApp(root)
+    with patch.object(m3_ui,'settings_path',return_value=preferences_path):
+        gui = app.TunnelApp(root)
     failures = []
     root.report_callback_exception = lambda kind,exc,tb: failures.append(repr(exc))
     def tick(seconds=.65):
@@ -282,8 +287,70 @@ def ui():
         assert gui.footer.winfo_rooty()+gui.footer.winfo_height() <= root.winfo_rooty()+root.winfo_height()
         screenshot('小窗口预览.png')
         print('PASS settings tab, running-state locking, small-window scroll access',flush=True)
+        root.geometry('940x940')
+        port_widget = gui.port_box
+        gui.set_active(True)
+        gui.settings_button.invoke()
+        tick(.12)
+        if m3_ui.MOTION:
+            assert 0 < gui.page_host.progress < 1
+        gui.page_host.show(False)
+        tick(.12)
+        gui.page_host.show(True)
+        tick(.9)
+        assert gui.page_host.progress == 1
+        assert gui.port_box is port_widget and gui.active
+        assert gui.port_box.control_state == 'disabled'
+        screenshot('设置页面预览.png')
+        root.geometry('700x620')
+        tick()
+        gui.appearance.view.yview_moveto(1)
+        tick()
+        assert gui.appearance.view.yview()[1] >= .999
+        screenshot('设置小窗口预览.png')
+        root.geometry('940x940')
+        gui.appearance.view.yview_moveto(0)
+        tick()
+        gui.appearance.theme.set('薄荷绿')
+        tick()
+        assert m3_ui.CURRENT_THEME == '薄荷绿'
+        assert gui.root.cget('background') != m3_ui.BG
+        slider = gui.appearance.slider
+        slider.event_generate('<Button-1>',x=slider.winfo_width()-16,y=20)
+        assert gui.appearance.speed.get() == 2.
+        slider.focus_force()
+        tick(.05)
+        slider.event_generate('<KeyPress-Left>')
+        assert gui.appearance.speed.get() == 1.9
+        gui.appearance.slider.set(.5)
+        tick()
+        assert m3_ui.MOTION_DURATION_SCALE == 4.
+        gui.appearance.slider.set(2.)
+        tick()
+        assert m3_ui.MOTION_DURATION_SCALE == 1.
+        gui.appearance.motion.set('关闭')
+        tick()
+        assert not m3_ui.MOTION
+        gui.page_host.show(False)
+        assert gui.page_host.progress == 0
+        gui.page_host.show(True)
+        assert gui.page_host.progress == 1
+        screenshot('薄荷主题设置预览.png')
+        loaded = m3_ui.read_preferences(preferences_path)
+        assert loaded == {'theme':'薄荷绿','speed':2.,'motion':False},loaded
+        gui.set_active(False)
+        gui.appearance.reset()
+        tick()
+        assert m3_ui.read_preferences(preferences_path) == {'theme':'薰衣紫','speed':1.,'motion':True}
+        gui.page_host.show(False)
+        tick(.9)
+        assert gui.port_box.entry.winfo_exists()
+        print('PASS page animation/reversal, active-state preservation, live themes, speed, motion, atomic persistence, defaults',flush=True)
+        preferences_path.write_text('{broken',encoding='utf-8')
+        assert m3_ui.read_preferences(preferences_path)['speed'] == 1.
     finally:
         gui.close()
+        preferences_dir.cleanup()
 
 
 if __name__ == '__main__':

@@ -2,6 +2,11 @@
 import math
 import time
 import tkinter as tk
+import colorsys
+import json
+import os
+from pathlib import Path
+import uuid
 
 BG = '#F8F5FC'
 SURFACE = '#FFFBFF'
@@ -12,6 +17,89 @@ TONAL = '#ECE3FA'
 FONT = ('Microsoft YaHei UI', -14)
 MOTION = True
 MOTION_DURATION_SCALE = 2.0
+SYSTEM_MOTION = True
+THEMES = {'薰衣紫': '#6750A4', '玫瑰粉': '#984568', '薄荷绿': '#286B58', '晴空蓝': '#355F98'}
+CURRENT_THEME = '薰衣紫'
+
+
+def theme_color(value):
+    if not isinstance(value,str) or len(value)!=7 or not value.startswith('#'):
+        return value
+    if CURRENT_THEME == '薰衣紫':
+        return value
+    try:
+        rgb = tuple(int(value[i:i+2],16)/255 for i in (1,3,5))
+    except ValueError:
+        return value
+    hue,light,saturation = colorsys.rgb_to_hls(*rgb)
+    if not .64 <= hue <= .91 or saturation < .035:
+        return value
+    target = THEMES[CURRENT_THEME]
+    target_h,_,target_s = colorsys.rgb_to_hls(*(int(target[i:i+2],16)/255 for i in (1,3,5)))
+    if value.upper() == PRIMARY.upper():
+        return target
+    rgb = colorsys.hls_to_rgb(target_h,light,min(.7,saturation*(.75+target_s*.5)))
+    return '#'+''.join(f'{round(c*255):02x}' for c in rgb)
+
+
+def settings_path():
+    return Path(os.environ.get('LOCALAPPDATA',Path.home()))/'OneClickTunnelGUI'/'appearance.json'
+
+
+def read_preferences(path):
+    result = {'theme':'薰衣紫','speed':1.0,'motion':True}
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data,dict):
+            return result
+        if isinstance(data.get('theme'),str) and data['theme'] in THEMES:
+            result['theme'] = data['theme']
+        speed = data.get('speed')
+        if type(speed) in (int,float) and .5 <= speed <= 2:
+            result['speed'] = float(speed)
+        if isinstance(data.get('motion'),bool):
+            result['motion'] = data['motion']
+    except (OSError,ValueError):
+        pass
+    return result
+
+
+def recolor_tree(widget):
+    originals = getattr(widget,'_original_colors',{})
+    last = getattr(widget,'_last_colors',{})
+    for option in ('background','foreground','insertbackground','selectbackground',
+                   'readonlybackground','disabledbackground','disabledforeground',
+                   'activebackground','activeforeground','troughcolor','highlightbackground'):
+        try:
+            current = widget.cget(option)
+            if option not in originals or current != last.get(option):
+                originals[option] = current
+            value = theme_color(originals[option])
+            widget.configure(**{option:value})
+            last[option] = value
+        except tk.TclError:
+            continue
+    widget._original_colors,widget._last_colors = originals,last
+    if isinstance(widget,Surface):
+        widget.color = theme_color(SURFACE if widget._base_color == SURFACE else widget._base_color)
+        widget.layout()
+    elif isinstance(widget,AnimatedCanvas) and hasattr(widget,'draw'):
+        widget.draw()
+    elif isinstance(widget,tk.Canvas):
+        # Static brand artwork is also recolored without rebuilding the page.
+        colors = getattr(widget,'_item_colors',{})
+        for item in widget.find_all():
+            for option in ('fill','outline'):
+                try:
+                    key = (item,option)
+                    if key not in colors:
+                        colors[key] = widget.itemcget(item,option)
+                    widget.itemconfigure(item,**{option:theme_color(colors[key])})
+                except tk.TclError:
+                    pass
+        widget._item_colors = colors
+    for child in widget.winfo_children():
+        recolor_tree(child)
 
 
 def status_copy(value):
@@ -86,6 +174,12 @@ class AnimatedCanvas(tk.Canvas):
         self.jobs = {}
         self.bind('<Destroy>', self._destroy, add='+')
 
+    def _create(self, itemType, args, kw):
+        for option in ('fill','outline','activefill','activeoutline'):
+            if option in kw:
+                kw[option] = theme_color(kw[option])
+        return super()._create(itemType,args,kw)
+
     def later(self, key, delay, callback):
         old = self.jobs.pop(key, None)
         if old:
@@ -123,6 +217,7 @@ class Surface(AnimatedCanvas):
                  stretch=False, **kw):
         super().__init__(master, bg=master.cget('bg'), **kw)
         self.color, self.radius, self.padding = color, radius, padding
+        self._base_color = color
         self.stretch = stretch
         self.body = tk.Frame(self, bg=color)
         self.window = self.create_window(padding, padding, window=self.body, anchor='nw')
@@ -480,6 +575,210 @@ class Scrollbar(AnimatedCanvas):
             self.command('moveto',fraction)
 
 
+class PageHost(AnimatedCanvas):
+    def __init__(self, master):
+        super().__init__(master,bg=BG)
+        self.home = tk.Frame(self,bg=BG)
+        self.settings = tk.Frame(self,bg=BG)
+        self.home_item = self.create_window(0,0,anchor='nw',window=self.home)
+        self.settings_item = self.create_window(0,0,anchor='nw',window=self.settings,state='hidden')
+        self.progress = 0.
+        self.target = 0
+        self.bind('<Configure>',lambda e:self.arrange())
+
+    def arrange(self):
+        w,h = self.winfo_width(),self.winfo_height()
+        for item in (self.home_item,self.settings_item):
+            self.itemconfigure(item,width=w,height=h)
+        self.coords(self.home_item,-w*self.progress,0)
+        self.coords(self.settings_item,w*(1-self.progress),0)
+
+    def show(self, settings):
+        self.target = int(settings)
+        start = self.progress
+        for item in (self.home_item,self.settings_item):
+            self.itemconfigure(item,state='normal')
+        def move(t):
+            self.progress = start+(self.target-start)*t
+            self.arrange()
+        def finish():
+            self.itemconfigure(self.home_item if self.target else self.settings_item,state='hidden')
+        self.animate('page',.34,move,finish)
+
+
+class SpeedSlider(AnimatedCanvas):
+    def __init__(self, master, variable, command):
+        super().__init__(master,bg=master.cget('bg'),height=40,width=300,takefocus=True,cursor='hand2')
+        self.variable,self.command = variable,command
+        self.focused = False
+        self.trace = variable.trace_add('write',self.changed)
+        self.bind('<Configure>',lambda e:self.draw())
+        self.bind('<Button-1>',self.pointer)
+        self.bind('<B1-Motion>',self.pointer)
+        self.bind('<Left>',lambda e:self.set(self.variable.get()-.1))
+        self.bind('<Right>',lambda e:self.set(self.variable.get()+.1))
+        self.bind('<Home>',lambda e:self.set(.5))
+        self.bind('<End>',lambda e:self.set(2.))
+        self.bind('<FocusIn>',lambda e:self.focus(True))
+        self.bind('<FocusOut>',lambda e:self.focus(False))
+        self.bind('<Destroy>',lambda e:self.variable.trace_remove('write',self.trace) if e.widget is self else None,add='+')
+
+    def focus(self,value):
+        self.focused = value
+        self.draw()
+
+    def pointer(self,event):
+        self.focus_set()
+        self.set(.5+1.5*(event.x-16)/max(1,self.winfo_width()-32))
+
+    def set(self,value):
+        self.variable.set(round(max(.5,min(2.,float(value))),1))
+        return 'break'
+
+    def changed(self,*args):
+        self.draw()
+        self.command(self.variable.get())
+
+    def draw(self):
+        self.delete('all')
+        w = max(33,self.winfo_width())
+        x = 16+(w-32)*(self.variable.get()-.5)/1.5
+        rounded(self,16,17,w-32,6,3,TONAL)
+        rounded(self,16,17,max(1,x-16),6,3,PRIMARY)
+        if self.focused:
+            self.create_oval(x-16,4,x+16,36,fill=TONAL,outline='')
+        self.create_oval(x-10,10,x+10,30,fill=PRIMARY,outline='')
+        self.create_oval(x-3,17,x+3,23,fill='#FFFFFF',outline='')
+
+
+class AppearanceSettings:
+    def __init__(self, app, host, data, path):
+        self.app,self.host,self.path = app,host,path
+        self.data = data.copy()
+        self.pending = None
+        self.dirty = False
+        self.theme = tk.StringVar(value=data['theme'])
+        self.speed = tk.DoubleVar(value=data['speed'])
+        self.motion = tk.StringVar(value='开启' if data['motion'] else '关闭')
+        self.save_status = tk.StringVar(value='喜欢的样子，我会替你记住哦♪')
+        self.speed_label = tk.StringVar()
+        root = host.settings
+        view = tk.Canvas(root,bg=BG,bd=0,highlightthickness=0)
+        scroll = Scrollbar(root,view.yview)
+        view.configure(yscrollcommand=scroll.set)
+        view.pack(side='left',fill='both',expand=True)
+        self.view = view
+        container = tk.Frame(view,bg=BG)
+        item = view.create_window(0,0,window=container,anchor='nw')
+        def layout(event=None):
+            w = view.winfo_width()
+            view.itemconfigure(item,width=min(w,1000))
+            view.coords(item,max(0,(w-1000)/2),0)
+            h = container.winfo_reqheight()
+            view.configure(scrollregion=(0,0,w,h))
+            if h > view.winfo_height()+2:
+                if not scroll.winfo_manager():
+                    scroll.pack(side='right',fill='y')
+            elif scroll.winfo_manager():
+                scroll.pack_forget()
+        view.bind('<Configure>',layout)
+        container.bind('<Configure>',layout)
+        body = tk.Frame(container,bg=BG)
+        body.pack(fill='x',padx=28,pady=22)
+        heading = tk.Frame(body,bg=BG)
+        heading.pack(fill='x',pady=(0,18))
+        Button(heading,'← 返回',lambda:host.show(False),width=96).pack(side='left',padx=(0,16))
+        tk.Label(heading,text='把这里，变成你喜欢的样子',font=('Microsoft YaHei UI',-22,'bold'),bg=BG,fg=TEXT).pack(side='left')
+
+        def section(title,subtitle):
+            surface = Surface(body,padding=22)
+            surface.pack(fill='x',pady=(0,16))
+            area = surface.body
+            tk.Label(area,text=title,bg=SURFACE,fg=TEXT,font=('Microsoft YaHei UI',-17,'bold')).pack(anchor='w')
+            label = tk.Label(area,text=subtitle,bg=SURFACE,fg=MUTED,font=FONT,justify='left',anchor='w')
+            label.pack(fill='x',pady=(6,16))
+            area.bind('<Configure>',lambda e:label.configure(wraplength=max(280,e.width-8)),add='+')
+            return area
+        colors = section('今天，想选哪一种心情？','换个颜色，整个界面都会一起换装哦♪')
+        self.color_choices = Segments(colors,self.theme,tuple(THEMES),command=lambda value:self.change(theme=value))
+        self.color_choices.pack(fill='x')
+        rhythm = section('让动画跟上你的节奏','慢一点也很好呀。速度以现在的舒缓节奏为 1.0×，调整后立即生效。')
+        tk.Label(rhythm,textvariable=self.speed_label,bg=SURFACE,fg=PRIMARY,font=('Microsoft YaHei UI',-17,'bold')).pack(anchor='w')
+        self.slider = SpeedSlider(rhythm,self.speed,lambda value:self.change(speed=float(value)))
+        self.slider.pack(fill='x',pady=(8,0))
+        ends = tk.Frame(rhythm,bg=SURFACE)
+        ends.pack(fill='x')
+        tk.Label(ends,text='0.5× · 慢慢来',bg=SURFACE,fg=MUTED,font=FONT).pack(side='left')
+        tk.Label(ends,text='2.0× · 轻快些',bg=SURFACE,fg=MUTED,font=FONT).pack(side='right')
+        toggles = section('动效与预览','悬停、点击、页面切换和呼吸动画都会遵循这里的设置。')
+        Segments(toggles,self.motion,('开启','关闭'),command=lambda value:self.change(motion=value=='开启'),width=240).pack(anchor='w')
+        if not SYSTEM_MOTION:
+            tk.Label(toggles,text='Windows 已关闭系统动画；这里也会保持静止哦。',bg=SURFACE,fg=MUTED,font=FONT).pack(anchor='w',pady=(8,0))
+        preview_row = tk.Frame(toggles,bg=SURFACE)
+        preview_row.pack(fill='x',pady=(16,0))
+        self.preview_text = tk.StringVar(value='点一下，感受现在的节奏吧♪')
+        Button(preview_row,'试试动画 ♪',lambda:self.preview_text.set('这个节奏，你喜欢吗？再试一次也可以哦♪'),variant='filled',width=150).pack(side='left',padx=(0,12))
+        tk.Label(preview_row,textvariable=self.preview_text,bg=SURFACE,fg=MUTED,font=('Microsoft YaHei UI',-12)).pack(side='left')
+        footer = tk.Frame(body,bg=BG)
+        footer.pack(fill='x')
+        Button(footer,'恢复默认',self.reset,width=112).pack(side='right')
+        tk.Label(footer,textvariable=self.save_status,bg=BG,fg=MUTED,font=('Microsoft YaHei UI',-12),wraplength=400,justify='left').pack(side='left')
+        self.apply()
+        app.root.bind('<Destroy>',self.on_destroy,add='+')
+
+    def apply(self,recolor=True):
+        global CURRENT_THEME,MOTION,MOTION_DURATION_SCALE
+        CURRENT_THEME = self.data['theme']
+        MOTION = SYSTEM_MOTION and self.data['motion']
+        MOTION_DURATION_SCALE = 2.0/self.data['speed']
+        self.speed_label.set(f"{self.data['speed']:.1f}× 动画速度")
+        if recolor:
+            recolor_tree(self.app.root)
+
+    def change(self, **updates):
+        if all(self.data.get(k)==v for k,v in updates.items()):
+            return
+        self.data.update(updates)
+        self.apply(recolor='theme' in updates)
+        self.dirty = True
+        self.save_status.set('正在记住你的偏好…')
+        if self.pending:
+            self.app.root.after_cancel(self.pending)
+        self.pending = self.app.root.after(300,self.save)
+
+    def save(self):
+        self.pending = None
+        if not self.dirty:
+            return
+        temp = self.path.with_name(self.path.name+'.'+uuid.uuid4().hex+'.tmp')
+        try:
+            self.path.parent.mkdir(parents=True,exist_ok=True)
+            temp.write_text(json.dumps(self.data,ensure_ascii=False,indent=2),encoding='utf-8')
+            os.replace(temp,self.path)
+            self.dirty = False
+            self.save_status.set('记住啦，下次见面也会是你喜欢的样子♪')
+        except OSError:
+            self.save_status.set('本次调整已生效，但保存失败了，请检查目录权限。')
+        finally:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def reset(self):
+        self.theme.set('薰衣紫')
+        self.speed.set(1.)
+        self.motion.set('开启')
+        self.change(theme='薰衣紫',speed=1.,motion=True)
+
+    def on_destroy(self,event):
+        if event.widget is self.app.root:
+            if self.pending:
+                self.app.root.after_cancel(self.pending)
+                self.pending = None
+            self.save()
+
+
 def build_material_ui(app):
     root = app.root
     root.title('一键内网穿透GUI工具')
@@ -490,17 +789,26 @@ def build_material_ui(app):
     root.geometry(f'{width}x{height}+{max(0,(root.winfo_screenwidth()-width)//2)}+{max(0,(root.winfo_screenheight()-height)//2)}')
 
     # Honor the Windows animation accessibility preference.
-    global MOTION
+    global MOTION,SYSTEM_MOTION,CURRENT_THEME,MOTION_DURATION_SCALE
+    CURRENT_THEME = '薰衣紫'
+    MOTION_DURATION_SCALE = 2.
+    SYSTEM_MOTION = True
     try:
         import ctypes
         enabled = ctypes.c_int(1)
         if ctypes.windll.user32.SystemParametersInfoW(0x1042,0,ctypes.byref(enabled),0):
-            MOTION = bool(enabled.value)
+            SYSTEM_MOTION = bool(enabled.value)
     except (AttributeError, OSError):
         pass
+    MOTION = SYSTEM_MOTION
+    preference_path = settings_path()
+    preferences = read_preferences(preference_path)
+    host = PageHost(root)
+    host.pack(fill='both',expand=True)
+    app.page_host = host
 
-    viewport = tk.Canvas(root,bg=BG,highlightthickness=0,bd=0)
-    scrollbar = Scrollbar(root,command=viewport.yview)
+    viewport = tk.Canvas(host.home,bg=BG,highlightthickness=0,bd=0)
+    scrollbar = Scrollbar(host.home,command=viewport.yview)
     viewport.configure(yscrollcommand=scrollbar.set)
     viewport.pack(side='left',fill='both',expand=True)
     outer = tk.Frame(viewport,bg=BG)
@@ -523,6 +831,9 @@ def build_material_ui(app):
     outer.bind('<Configure>',layout)
 
     def wheel(event):
+        if host.target:
+            app.appearance.view.yview_scroll(-int(event.delta/120),'units')
+            return
         if event.widget is not app.log_widget and outer.winfo_reqheight() > viewport.winfo_height():
             viewport.yview_scroll(-int(event.delta/120),'units')
     root.bind('<MouseWheel>',wheel,add='+')
@@ -540,6 +851,8 @@ def build_material_ui(app):
     title.pack(side='left',fill='x',expand=True)
     tk.Label(title,text='一键内网穿透',bg=BG,fg=TEXT,font=('Microsoft YaHei UI',-26,'bold'),anchor='w').pack(fill='x')
     tk.Label(title,text='嗨，想把你的小小世界分享出去吗？交给我吧♪',bg=BG,fg=MUTED,font=FONT,anchor='w').pack(fill='x',pady=(4,0))
+    app.settings_button = Button(header,'设置  ⚙',lambda:host.show(True),width=100)
+    app.settings_button.pack(side='right',padx=(8,0))
 
     card = Surface(content,padding=20)
     card.pack(fill='x')
@@ -661,3 +974,5 @@ def build_material_ui(app):
         bg=BG,fg=MUTED,font=('Microsoft YaHei UI',-11),justify='left',anchor='w')
     app.footer.pack(fill='x',pady=(18,0))
     content.bind('<Configure>',lambda e:app.footer.configure(wraplength=max(320,e.width)))
+    app.appearance = AppearanceSettings(app,host,preferences,preference_path)
+    app.status.trace_add('write',lambda *args:root.after_idle(lambda:recolor_tree(app.status_label) if app.status_label.winfo_exists() else None))

@@ -8,6 +8,7 @@ dist/
 *.lnk
 *.log
 .test-engines/
+bundled_engines/
 .tools/
 .codex-install-staging/
 .codex/
@@ -17,6 +18,9 @@ test-download-results.json
 界面预览.png
 FRP配置预览.png
 小窗口预览.png
+设置页面预览.png
+薄荷主题设置预览.png
+设置小窗口预览.png
 publish_github.py
 .env
 .env.*
