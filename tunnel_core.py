@@ -24,6 +24,7 @@ import uuid
 import zipfile
 import tarfile
 import webbrowser
+from i18n import RawLog
 
 APP_NAME = "一键内网穿透GUI工具"
 BG = "#F7F2FA"
@@ -37,6 +38,8 @@ RED = "#B3261E"
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 MAX_DOWNLOAD = 200 * 1024 * 1024
+ENGINE_LOCKS = {}
+ENGINE_LOCKS_GUARD = threading.Lock()
 
 
 class Cancelled(Exception):
@@ -347,6 +350,18 @@ class EngineStore:
             raise ValueError("内核 SHA-256 校验失败，请重试。")
 
     def ensure(self, engine):
+        key = (str(self.root.resolve()), engine)
+        with ENGINE_LOCKS_GUARD:
+            lock = ENGINE_LOCKS.setdefault(key, threading.Lock())
+        while not lock.acquire(timeout=.1):
+            check_cancel(self.cancel)
+        try:
+            check_cancel(self.cancel)
+            return self._ensure(engine)
+        finally:
+            lock.release()
+
+    def _ensure(self, engine):
         self.root.mkdir(parents=True, exist_ok=True)
         machine = os.environ.get(
             "PROCESSOR_ARCHITEW6432", platform.machine()
@@ -460,7 +475,7 @@ class TunnelCore:
     def emit(self, run_id, kind, value):
         if kind == "log":
             try:
-                self.logs.put_nowait((run_id, str(value)))
+                self.logs.put_nowait((run_id, value if isinstance(value, RawLog) else str(value)))
             except queue.Full:
                 pass
         else:
@@ -698,7 +713,7 @@ class TunnelCore:
                         line = None
 
                     if line:
-                        emit("log", line)
+                        emit("log", RawLog(line))
                         lower = line.lower()
 
                         if engine == "cloudflared":

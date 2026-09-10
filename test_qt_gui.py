@@ -29,7 +29,7 @@ def main():
                 c.setPreference('theme', '薄荷绿')
                 c.setPreference('speed', 0.5)
                 c.save()
-                assert read_preferences(c.preference_path) == {'theme': '薄荷绿', 'speed': 0.5, 'motion': True}
+                assert read_preferences(c.preference_path) == {'theme': '薄荷绿', 'speed': 0.5, 'motion': True, 'language': 'zh_CN'}
                 c.setPreference('motion', False)
                 w.setProperty('settingsOpen', True)
                 assert w.property('settingsOpen')

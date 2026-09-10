@@ -45,8 +45,9 @@ class CloudflareAccount:
         self.job = None
         self.busy = False
         self.worker = None
-        self.status = "检测到本地授权凭据" if self.cert.is_file() else "还未登录 Cloudflare"
+        self.status = "检测到本地授权证书" if self.cert.is_file() else "尚未收到域名授权证书"
         self.login_url = ""
+        self.operation = ""
 
     def save(self):
         self.folder.mkdir(parents=True, exist_ok=True)
@@ -61,6 +62,7 @@ class CloudflareAccount:
 
     def state(self):
         return {"cfBusy": self.busy, "cfStatus": self.status, "cfLoginUrl": self.login_url,
+                "cfOperation": self.operation, "cfCertPresent": self.cert.is_file(),
                 "cfEnabled": self.data["enabled"], "cfHostname": self.data["hostname"],
                 "cfTunnelId": self.data["id"],
                 "cfReady": bool(self.data["id"] and self.credentials.is_file()
@@ -70,8 +72,9 @@ class CloudflareAccount:
         if self.busy:
             return
         self.busy = True
+        self.operation = operation
         self.cancel = threading.Event()
-        self.status = "请在浏览器中完成授权哦…" if operation == "login" else "正在准备固定域名…"
+        self.status = "请在网页选择域名并授权…" if operation == "login" else "正在准备固定域名…"
         self.login_url = ""
 
         def work():
@@ -84,6 +87,8 @@ class CloudflareAccount:
                     if not self.cert.is_file():
                         raise RuntimeError("还没有收到授权证书，请完成浏览器授权后再试一次。")
                     self.events.put(("status", "本地授权凭据已就绪，可以绑定域名啦♪"))
+                    if not self.cancel.is_set():
+                        self.events.put(("authorized", None))
                 else:
                     self.prepare(binary)
                     self.events.put(("status", "固定域名准备好啦，回主页开始穿透吧♪"))
@@ -137,7 +142,7 @@ class CloudflareAccount:
                 if url:
                     self.events.put(("login_url", url.group()))
                 else:
-                    self.events.put(("log", line))
+                    self.events.put(("raw_log", line))
             if process.returncode:
                 raise RuntimeError("Cloudflare 操作失败：\n" + "\n".join(tail))
         finally:

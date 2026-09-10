@@ -8,8 +8,8 @@
 
 隧道身份会在 DNS 操作前保存；重试会复用已有本地凭据，避免 DNS 失败后重复创建。命名隧道启动时使用独立的 ingress 配置和 HTTP 404 兜底规则；本地 HTTP / HTTPS 服务通过固定 HTTPS 地址访问。固定域名连接失败时不会静默切换到临时地址或 FRP。
 
-授权证书位于用户目录 `.cloudflared/cert.pem`。应用的隧道凭据位于 `%LOCALAPPDATA%/OneClickTunnelGUI/cloudflare/tunnel-credentials.json`，配置为同目录 `cloudflare.json`。这些凭据不放入仓库或 EXE。取消或退出会清理正在运行的授权/管理进程，已经创建的云端隧道及 DNS 记录会保留。
+授权证书位于用户目录 `.cloudflared/cert.pem`，各条隧道共用这一账户证书。新建隧道的本地凭据和配置分别保存在 `%LOCALAPPDATA%/OneClickTunnelGUI/cloudflare/tunnels/<隧道ID>/` 中；迁移的旧隧道保留原有存储位置。这些凭据不放入仓库或 EXE。取消或退出会清理正在运行的授权及管理进程，已经创建的云端隧道和 DNS 记录会保留。
 
-按用户要求，本次没有实际执行登录、创建隧道、DNS 绑定或固定域名连通性测试。只完成代码检查、界面检查和原有本地回归。
+已通过离线测试检查授权结果处理、取消操作和界面状态，没有实际完成账户授权、创建云端隧道、DNS 绑定或固定域名连通性验证。浏览器登录账户后，还需要完成 Tunnel 授权；域名列表为空时，应先将自有域名接入 Cloudflare，再继续授权。
 
 实现依据：[Cloudflare 官方本地管理隧道指南](https://developers.cloudflare.com/tunnel/advanced/local-management/create-local-tunnel/)。

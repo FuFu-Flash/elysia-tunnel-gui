@@ -20,12 +20,17 @@ from PySide6.QtGui import QGuiApplication, QSurfaceFormat, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 from PySide6.QtQuickControls2 import QQuickStyle
+from PySide6.QtWidgets import QApplication
 
 from tunnel_core import APP_NAME, TunnelCore, error_text, friendly_error, listening_ports
 from cloudflare_account import CloudflareAccount, hostname
+from i18n import LANGUAGES, RawLog, translate
+from window_chrome import WindowChrome
+from tunnel_manager import TunnelManager
+from tray_shell import TrayShell
 
 THEMES = {"爱莉粉": "#C24C86", "薰衣紫": "#6750A4", "玫瑰粉": "#984568", "薄荷绿": "#286B58", "晴空蓝": "#355F98"}
-DEFAULTS = {"theme": "爱莉粉", "speed": 1.0, "motion": True}
+DEFAULTS = {"theme": "爱莉粉", "speed": 1.0, "motion": True, "language": "zh_CN"}
 FIELDS = {"mode": "自动", "protocol": "HTTP", "port": "8080", "server": "",
           "server_port": "7000", "remote_port": "18080", "token": "", "public_host": ""}
 
@@ -51,6 +56,8 @@ def read_preferences(path):
             result["speed"] = float(speed)
         if isinstance(data.get("motion"), bool):
             result["motion"] = data["motion"]
+        if data.get("language") in LANGUAGES:
+            result["language"] = data["language"]
     except (OSError, ValueError):
         pass
     return result
@@ -69,6 +76,8 @@ class Controller(QObject):
     changed = Signal()
     logsChanged = Signal()
     errorRaised = Signal(str)
+    authorizationCompleted = Signal()
+    temporarySelected = Signal()
 
     def __init__(self, preference_path=None):
         super().__init__()
@@ -110,16 +119,32 @@ class Controller(QObject):
     def state(self):
         words = {"准备就绪": "准备好啦，随时可以出发♪", "已连接": "连接好啦，把小小世界分享出去吧♪",
                  "已停止": "先歇一会儿，我会在这里等你", "连接失败": "哎呀，这次没连上，一起看看日志吧"}
-        return {**self.fields, **self.preferences, **self.cloudflare.state(), "accent": THEMES[self.preferences["theme"]],
+        cf_state = self.cloudflare.state()
+        cf_state["cfStatus"] = self.tr_text(cf_state["cfStatus"])
+        return {**self.fields, **self.preferences, **cf_state, "accent": THEMES[self.preferences["theme"]],
                 "active": self.active, "scanBusy": self.scan_busy, "ports": self.ports,
-                "status": words.get(self.status, self.status), "rawStatus": self.status,
-                "address": self.address, "saveError": self.save_error,
+                "status": self.tr_text(words.get(self.status, self.status)), "rawStatus": self.status,
+                "address": self.address, "saveError": self.tr_text(self.save_error),
                 "systemMotion": self.system_motion, "refreshRate": self.refresh_rate,
                 "stopping": self.active and self.core.cancel.is_set()}
 
     @Property(str, notify=logsChanged)
     def logText(self):
-        return "\n".join(self.lines)
+        result = []
+        for line in self.lines:
+            if isinstance(line, tuple):
+                timestamp, body = line
+                result.append(timestamp + "  " + self.tr_text(body))
+            else:
+                result.append(self.tr_text(line))
+        return "\n".join(result)
+
+    def tr_text(self, text):
+        return translate(text, self.preferences["language"])
+
+    @Slot(str, str, result=str)
+    def translate(self, text, language):
+        return translate(text, language)
 
     @Slot(str, str)
     def setField(self, name, value):
@@ -140,11 +165,15 @@ class Controller(QObject):
             self.preferences[name] = round(max(.5, min(2., value)), 1)
         elif name == "motion" and isinstance(value, bool):
             self.preferences[name] = value
+        elif name == "language" and value in LANGUAGES:
+            self.preferences[name] = value
         else:
             return
         self.dirty = True
         self.save_timer.start()
         self.changed.emit()
+        if name == "language":
+            self.logsChanged.emit()
 
     @Slot()
     def resetPreferences(self):
@@ -152,6 +181,7 @@ class Controller(QObject):
         self.dirty = True
         self.save_timer.start()
         self.changed.emit()
+        self.logsChanged.emit()
 
     @Slot()
     def save(self):
@@ -256,12 +286,19 @@ class Controller(QObject):
             except queue.Empty:
                 break
             changed = True
-            if kind == "log":
+            if kind in ("log", "raw_log"):
+                if kind == "raw_log":
+                    value = RawLog(value)
                 self.core.log(value)
             elif kind == "login_url":
                 self.cloudflare.login_url = value
             elif kind == "finished":
                 self.cloudflare.busy = False
+                self.cloudflare.operation = ""
+                self.cloudflare.login_url = ""
+            elif kind == "authorized":
+                if not self.cloudflare.cancel.is_set():
+                    self.authorizationCompleted.emit()
             elif kind == "error":
                 self.cloudflare.status = "这次操作没有完成，看看提示吧。"
                 self.notify_error(value)
@@ -313,7 +350,7 @@ class Controller(QObject):
             except queue.Empty:
                 break
             if run_id == self.core.run_id:
-                incoming.append(f"{time.strftime('%H:%M:%S')}  {line}")
+                incoming.append((time.strftime('%H:%M:%S'), line))
         if incoming:
             self.lines = (self.lines + incoming)[-1500:]
             self.logsChanged.emit()
@@ -344,6 +381,23 @@ class Controller(QObject):
             return
         if action == "cancel":
             self.cloudflare.stop()
+            self.cloudflare.status = "正在取消操作，请稍等…"
+            self.cloudflare.login_url = ""
+        elif action == "temporary" and not self.active and self.cloudflare.operation != "prepare":
+            self.cloudflare.stop()
+            self.cloudflare.login_url = ""
+            self.cloudflare.data["enabled"] = False
+            try:
+                self.cloudflare.save()
+            except OSError as exc:
+                self.notify_error(exc)
+                self.changed.emit()
+                return
+            if self.fields["mode"] == "FRP":
+                self.fields["mode"] = "自动"
+            if self.fields["protocol"] == "TCP":
+                self.fields["protocol"] = "HTTP"
+            self.temporarySelected.emit()
         elif action == "dashboard":
             webbrowser.open("https://dash.cloudflare.com/")
         elif action == "browser" and self.cloudflare.login_url:
@@ -413,12 +467,13 @@ def create_application(preference_path=None):
     fmt.setSwapInterval(1)
     QSurfaceFormat.setDefaultFormat(fmt)
     QQuickStyle.setStyle("Material")
-    application = QGuiApplication.instance() or QGuiApplication(sys.argv)
+    application = QApplication.instance() or QApplication(sys.argv)
+    application.setQuitOnLastWindowClosed(False)
     application.setApplicationName(APP_NAME)
     application.setWindowIcon(QIcon(str(Path(__file__).resolve().parent / "assets" / "app.ico")))
     if os.name == "nt":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Elysia.Tunnel.GUI")
-    controller = Controller(preference_path)
+    controller = TunnelManager(Controller, preference_path)
     engine = QQmlApplicationEngine()
     load_errors = []
     engine.warnings.connect(lambda messages: load_errors.extend(message.toString() for message in messages))
@@ -426,8 +481,11 @@ def create_application(preference_path=None):
     engine.load(QUrl.fromLocalFile(str(Path(__file__).resolve().parent / "qml" / "Main.qml")))
     if not engine.rootObjects():
         controller.close()
-        raise RuntimeError("界面没有加载成功：\n" + "\n".join(load_errors))
+        raise RuntimeError(controller.tr_text("界面没有加载成功：\n" + "\n".join(load_errors)))
     window = engine.rootObjects()[0]
+    window.chrome = WindowChrome(window, controller, THEMES)
+    window.trayShell = TrayShell(application, window, controller)
+    controller.shell = window.trayShell
     controller.bindScreen(window.screen())
     window.screenChanged.connect(controller.bindScreen)
     application.applicationStateChanged.connect(lambda: controller.refreshSystemMotion(None))
