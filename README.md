@@ -12,6 +12,8 @@
 
 在 [Releases](https://github.com/FuFu-Flash/elysia-tunnel-gui/releases) 下载 `ElysiaTunnel.exe`，双击运行。适用于 Windows 10 / 11 x64，已包含 Python、Qt 和两种穿透内核，无需另行安装依赖。单文件启动时会解压运行资源，因此首次打开需要稍等片刻。
 
+从 v0.3.1 起，单文件包由约 182.7 MiB 缩至 74.8 MiB。界面、托盘、波纹动画及两种穿透内核仍包含在 EXE 中。
+
 本地网站或应用要先开启。比如它现在通过 `http://localhost:8080` 访问，就选 HTTP，填 `8080`，再点「开始穿透」。建立隧道需要联网。
 
 ## 用起来顺手一点

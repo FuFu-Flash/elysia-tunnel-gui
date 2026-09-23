@@ -1,5 +1,6 @@
 """Build a Windows x64 standalone GUI; assets and verified engines are required."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import os
@@ -10,6 +11,10 @@ BASE = Path(__file__).resolve().parent
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--distpath', type=Path, default=BASE / 'dist')
+    parser.add_argument('--workpath', type=Path, default=BASE / 'build')
+    args = parser.parse_args()
     # Do not collect unrelated DLLs (e.g. Poppler's incompatible icuuc.dll) from PATH.
     os.environ["PATH"] = os.pathsep.join([
         str(Path(sys.executable).parent),
@@ -24,8 +29,9 @@ def main():
     PyInstaller.__main__.run([
         "--noconfirm", "--clean", "--onefile", "--windowed", "--noupx",
         "--name", "ElysiaTunnel", "--icon", str(BASE / "assets" / "app.ico"),
-        "--distpath", str(BASE / "dist"), "--workpath", str(BASE / "build"),
-        "--specpath", str(BASE / "build"),
+        "--distpath", str(args.distpath), "--workpath", str(args.workpath),
+        "--specpath", str(args.workpath),
+        "--additional-hooks-dir", str(BASE / 'packaging' / 'hooks'),
         "--add-data", f"{BASE / 'qml'};qml",
         "--add-data", f"{BASE / 'assets'};assets",
         "--add-data", f"{BASE / 'bundled_engines'};bundled_engines",

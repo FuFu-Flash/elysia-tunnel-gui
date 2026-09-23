@@ -12,6 +12,8 @@ Enter the local port, click **Start tunnel**, wait for the public address, and s
 
 Download `ElysiaTunnel.exe` from [Releases](https://github.com/FuFu-Flash/elysia-tunnel-gui/releases) and double-click it. The Windows 10 / 11 x64 package includes Python, Qt, and both tunnel engines, so there's no separate environment to set up. The single-file executable extracts its runtime when starting; give it a moment to open.
 
+Starting with v0.3.1, the single-file download is down from about 182.7 MiB to 74.8 MiB. The interface, tray, button ripples, and both tunnel engines remain in the EXE.
+
 Start your local service first. If it is available at `http://localhost:8080`, select HTTP, enter `8080`, and click **Start tunnel**. Establishing a tunnel requires an internet connection.
 
 ## A few things to make life easier

@@ -12,4 +12,8 @@
 
 构建脚本主动隔离 PATH，避免其他工具目录中的同名 DLL 混入。之前的独立启动测试曾检出 Poppler 的 ICU 被误收集，因此构建后必须在空工作目录、仅系统 PATH 下验证 EXE，而不能只测试源码启动。
 
+`packaging/hooks/hook-PySide6.QtQml.py` 只收集应用使用的 QML 模块及其依赖，再由 PyInstaller 解析所需 DLL。保留 Material、Basic 回退样式、波纹所需的 Effects、托盘所需的 QtWidgets 和软件 OpenGL 回退；不收集未使用的 WebEngine、3D 等扩展。新增 QML 模块时需要同步更新 hook，不能直接删除构建结果中的 DLL。
+
+可用 `python build_exe.py --distpath .tools/lean-dist --workpath .tools/lean-build` 生成独立候选包。构建后运行 `python packaging/verify_bundle.py .tools/lean-dist/ElysiaTunnel.exe`，检查界面资源、内核校验和关键兼容组件，并生成 SHA-256 文件。该检查不替代成品 GUI 与进程管理测试。
+
 第三方许可证及源码来源一并嵌入程序包。应用图标使用用户提供的原图，仅进行 ICO 格式和尺寸转换。
