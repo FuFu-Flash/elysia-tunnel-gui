@@ -2,6 +2,10 @@
 
 [简体中文](README.md) | English
 
+[![Release](https://img.shields.io/github/v/release/FuFu-Flash/elysia-tunnel-gui?style=flat-square&color=C24C86)](https://github.com/FuFu-Flash/elysia-tunnel-gui/releases/latest)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square)](#download-and-run)
+[![Architecture x64](https://img.shields.io/badge/architecture-x64-6A4C93?style=flat-square)](PACKAGING.md)
+
 Want to show a friend the little website running on your computer, without digging through a pile of commands? That's what this app is for.
 
 Enter the local port, click **Start tunnel**, wait for the public address, and send it over.

@@ -2,6 +2,10 @@
 
 简体中文 | [English](README.en.md)
 
+[![发行版](https://img.shields.io/github/v/release/FuFu-Flash/elysia-tunnel-gui?style=flat-square&color=C24C86)](https://github.com/FuFu-Flash/elysia-tunnel-gui/releases/latest)
+[![Windows 10/11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square)](#直接打开就能用)
+[![架构 x64](https://img.shields.io/badge/architecture-x64-6A4C93?style=flat-square)](PACKAGING.md)
+
 想把本地跑着的小网站发给朋友看看，却又不想临时翻一堆命令？这个小工具就是干这件事的。
 
 填个端口，点一下「开始穿透」，等外网地址出现，再复制给对方。
