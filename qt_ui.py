@@ -96,6 +96,7 @@ class Controller(QObject):
         self.preferences = read_preferences(self.preference_path)
         self.fields = FIELDS.copy()
         self.active = self.scan_busy = self.closing = self.restart_pending = False
+        self.api_target = None
         self.worker = None
         self.address = ""
         self.status = "准备就绪"
@@ -155,6 +156,8 @@ class Controller(QObject):
         if name == "protocol" and value not in ("HTTP", "HTTPS", "TCP"):
             return
         self.fields[name] = value
+        if name in ("port", "protocol", "mode"):
+            self.api_target = None
         self.changed.emit()
 
     @Slot(str, "QVariant")
@@ -219,6 +222,8 @@ class Controller(QObject):
             if self.cloudflare.data["enabled"] and self.fields["mode"] == "自动":
                 self.core.mode = Value("Cloudflare")
             config = self.core.snapshot()
+            if self.api_target in ("127.0.0.1", "::1"):
+                config["api_host"] = self.api_target
             fixed = self.cloudflare.snapshot() if config["mode"] != "FRP" else None
             if fixed:
                 if config["protocol"] == "tcp":
@@ -474,10 +479,15 @@ def create_application(preference_path=None):
     if os.name == "nt":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Elysia.Tunnel.GUI")
     controller = TunnelManager(Controller, preference_path)
+    from model_share import ModelShare, MODEL_EN
+    from i18n import EN
+    EN.update(MODEL_EN)
+    controller.model_share = ModelShare(controller)
     engine = QQmlApplicationEngine()
     load_errors = []
     engine.warnings.connect(lambda messages: load_errors.extend(message.toString() for message in messages))
     engine.rootContext().setContextProperty("bridge", controller)
+    engine.rootContext().setContextProperty("modelShare", controller.model_share)
     engine.load(QUrl.fromLocalFile(str(Path(__file__).resolve().parent / "qml" / "Main.qml")))
     if not engine.rootObjects():
         controller.close()

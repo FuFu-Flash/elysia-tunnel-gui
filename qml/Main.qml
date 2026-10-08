@@ -9,12 +9,17 @@ ApplicationWindow {
     id: win
     objectName: "mainWindow"
     visible: true
+    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowSystemMenuHint | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint
     width: Math.min(1240, Screen.desktopAvailableWidth - 64)
     height: Math.min(780, Screen.desktopAvailableHeight - 64)
     minimumWidth: 640
     minimumHeight: 560
-    x: Screen.virtualX + (Screen.width - width) / 2
-    y: Screen.virtualY + Math.max(0, (Screen.height - height) / 2 - 25)
+    // Center once at startup. A live binding to width/height moves the window
+    // during native resize and competes with the Windows maximize geometry.
+    Component.onCompleted: {
+        x = Screen.virtualX + (Screen.width - width) / 2
+        y = Screen.virtualY + Math.max(0, (Screen.height - height) / 2 - 25)
+    }
     title: win.tr("一键内网穿透GUI工具")
     font.family: "Microsoft YaHei UI"
     font.pixelSize: 14
@@ -30,179 +35,85 @@ ApplicationWindow {
     property color muted: "#71697D"
     property bool motion: data.motion && data.systemMotion
     property real timing: 2 / data.speed
+    property bool modelOpen: false
     property bool settingsOpen: false
     property bool frpOpen: false
     property bool wideLayout: width >= 1000
-    property bool compactLayout: height < 720
+    property bool compactLayout: height < 800
     property bool animating: slideAnimation.running
     function tr(text) { return bridge.translate(text, win.data.language) }
     function duration(base) { return motion ? Math.round(base * timing) : 0 }
+    function manageServers() { serverDrawer.open() }
+    function toggleMaximized() { if (visibility === Window.Maximized) showNormal(); else showMaximized() }
     Behavior on accent { ColorAnimation { duration: win.duration(240); easing.type: Easing.InOutCubic } }
     onClosing: close => { close.accepted = bridge.handleClose() }
 
-    component Caption: Label {
-        color: win.muted
-        wrapMode: Text.WordWrap
-        font.pixelSize: 12
-        Layout.fillWidth: true
-    }
-    component ProfileSelect: ComboBox {
-        id: profileSelect
-        implicitHeight: 46
-        background: Rectangle {
-            radius: 16; color: win.tonal
-            border.width: parent.visualFocus ? 2 : 0; border.color: win.accent
-            PressRipple { control: profileSelect; tint: win.accent; cornerRadius: 16; motion: win.motion; timing: win.timing }
-        }
-    }
-    component Heading: Label {
-        color: win.ink
-        font.pixelSize: 18
-        font.bold: true
-        Layout.fillWidth: true
-    }
-    component Card: Rectangle {
-        property int inset: win.compactLayout ? 14 : 20
-        color: "#FFFBFF"
-        radius: 28
-        Layout.fillWidth: true
-        implicitHeight: content.implicitHeight + inset * 2
-        default property alias contents: content.data
-        ColumnLayout {
-            id: content
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: parent.inset }
-            spacing: win.compactLayout ? 8 : 12
-        }
-    }
-    component Action: T.Button {
-        id: button
-        property bool filled: false
-        property bool quiet: false
-        implicitHeight: 48
-        implicitWidth: Math.max(90, Math.ceil(contentItem.implicitWidth) + 48)
-        hoverEnabled: true
-        padding: 16
-        leftPadding: 18
-        rightPadding: 18
-        opacity: enabled ? 1 : .42
-        font.pixelSize: 14
-        contentItem: Text {
-            text: button.text
-            font: button.font
-            color: button.filled ? "white" : win.accent
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-        background: Rectangle {
-            radius: height / 2
-            color: button.filled ? win.accent : button.quiet ? "transparent" : win.tonal
-            border.width: button.visualFocus ? 2 : 0
-            border.color: win.accent
-            Rectangle {
-                anchors.fill: parent
-                radius: height / 2
-                color: button.filled ? "white" : win.accent
-                opacity: button.down ? .08 : button.hovered ? .05 : 0
-                Behavior on opacity { OpacityAnimator { duration: win.duration(180); easing.type: Easing.OutCubic } }
-            }
-            PressRipple {
-                control: button; tint: button.filled ? "white" : win.accent
-                motion: win.motion; timing: win.timing
-            }
-        }
-        scale: down ? .965 : 1
-        Behavior on scale { ScaleAnimator { duration: win.duration(140); easing.type: Easing.OutCubic } }
-    }
-    component Choice: Rectangle {
-        id: choice
-        property var options: []
-        property string selected: ""
-        signal chosen(string value)
-        implicitHeight: 46
-        Layout.fillWidth: true
-        color: win.tonal
-        radius: 23
-        opacity: enabled ? 1 : .45
+    component Caption: ElysiaCaption { ui: win }
+    component ProfileSelect: ElysiaProfileSelect { ui: win }
+    component Heading: ElysiaHeading { ui: win }
+    component Card: ElysiaCard { ui: win }
+    component Action: ElysiaAction { ui: win }
+    component Choice: ElysiaChoice { ui: win }
+    component Entry: ElysiaEntry { ui: win }
+
+    Rectangle {
+        id: navigation
+        height: 88
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        color: win.backgroundColor
         Rectangle {
-            id: selection
-            x: 4 + Math.max(0, choice.options.indexOf(choice.selected)) * (choice.width - 8) / Math.max(1, choice.options.length)
-            y: 4
-            width: (choice.width - 8) / Math.max(1, choice.options.length)
-            height: parent.height - 8
-            radius: 20
-            color: win.accent
-            Behavior on x { XAnimator { duration: win.duration(250); easing.type: Easing.OutCubic } }
-        }
-        Row {
-            anchors { fill: parent; margins: 4 }
-            Repeater {
-                model: choice.options
-                delegate: T.AbstractButton {
-                    id: option
-                    required property string modelData
-                    width: (choice.width - 8) / Math.max(1, choice.options.length)
-                    height: choice.height - 8
-                    text: win.tr(modelData)
-                    hoverEnabled: true
-                    onClicked: choice.chosen(modelData)
-                    background: Rectangle {
-                        radius: 20
-                        color: option.visualFocus ? "#306750A4" : "transparent"
-                        border.width: option.visualFocus ? 1 : 0
-                        border.color: win.accent
-                        PressRipple {
-                            control: option; tint: choice.selected === option.modelData ? "white" : win.accent
-                            cornerRadius: 20; motion: win.motion; timing: win.timing
-                        }
-                    }
-                    contentItem: Text {
-                        text: option.text
-                        font.family: win.font.family
-                        font.pixelSize: win.data.language === "en" ? 12 : 14
-                        elide: Text.ElideRight
-                        color: choice.selected === option.modelData ? "white" : win.accent
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
+            id: windowBar
+            objectName: "windowBar"
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: 32
+            color: win.tonal
+            Item {
+                objectName: "windowDragArea"
+                anchors { left: parent.left; right: windowControls.left; top: parent.top; bottom: parent.bottom }
+                DragHandler {
+                    target: null
+                    acceptedButtons: Qt.LeftButton
+                    onActiveChanged: if (active) win.startSystemMove()
+                }
+                TapHandler {
+                    acceptedButtons: Qt.LeftButton
+                    onDoubleTapped: win.toggleMaximized()
                 }
             }
+            Row {
+                id: windowControls
+                anchors { right: parent.right; top: parent.top; rightMargin: 6 }
+                ElysiaWindowButton { objectName: "minimizeButton"; ui: win; text: win.tr("最小化"); glyph: "minimize"; onClicked: win.showMinimized() }
+                ElysiaWindowButton {
+                    objectName: "maximizeButton"; ui: win
+                    text: win.visibility === Window.Maximized ? win.tr("还原窗口") : win.tr("最大化")
+                    glyph: win.visibility === Window.Maximized ? "restore" : "maximize"
+                    onClicked: win.toggleMaximized()
+                }
+                ElysiaWindowButton { objectName: "closeWindowButton"; ui: win; text: win.tr("关闭窗口"); destructive: true; glyph: "close"; onClicked: win.close() }
+            }
         }
+        RowLayout {
+            anchors { left: parent.left; right: parent.right; top: windowBar.bottom; bottom: parent.bottom; leftMargin: 24; rightMargin: 24; topMargin: 4; bottomMargin: 4 }
+            spacing: 16
+            Image { source: "../assets/app.png"; sourceSize.width: 56; sourceSize.height: 56; Layout.preferredWidth: 40; Layout.preferredHeight: 40; fillMode: Image.PreserveAspectFit }
+            Item { Layout.fillWidth: true; Layout.minimumWidth: 0 }
+            Choice {
+                objectName: "mainNavigation"
+                Layout.fillWidth: win.width < 900
+                Layout.preferredWidth: 290
+                options: ["服务穿透", "模型分享"]
+                selected: win.modelOpen ? "模型分享" : "服务穿透"
+                onChosen: value => { win.modelOpen = value === "模型分享"; win.settingsOpen = false; if (win.modelOpen && !modelShare.state.scanComplete && !modelShare.state.scanBusy) modelShare.scan() }
+            }
+            Action { objectName: "settingsButton"; text: win.tr("设置"); icon.source: "../assets/icons/settings-rounded.png"; quiet: true; onClicked: win.settingsOpen = true }
+        }
+        Rectangle { anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: 24; rightMargin: 24 } height: 1; color: win.tonal }
     }
-    component Entry: T.TextField {
-        id: field
-        implicitHeight: 54
-        Layout.fillWidth: true
-        leftPadding: 16
-        rightPadding: 16
-        verticalAlignment: TextInput.AlignVCenter
-        color: win.ink
-        selectByMouse: true
-        selectionColor: win.tonal
-        selectedTextColor: win.ink
-        placeholderTextColor: win.muted
-        Text {
-            x: field.leftPadding
-            anchors.verticalCenter: parent.verticalCenter
-            width: field.width - field.leftPadding - field.rightPadding
-            text: field.placeholderText
-            font: field.font
-            color: field.placeholderTextColor
-            elide: Text.ElideRight
-            visible: !field.text.length && !field.preeditText.length
-        }
-        background: Rectangle {
-            radius: 15
-            color: "#FFFBFF"
-            border.width: field.activeFocus ? 2 : 1
-            border.color: field.activeFocus ? win.accent : "#D3CCD9"
-            Behavior on border.color { ColorAnimation { duration: win.duration(180) } }
-        }
-    }
-
+    ElysiaResizeEdges { ui: win }
     Item {
         id: pages
-        anchors.fill: parent
+        anchors { left: parent.left; right: parent.right; top: navigation.bottom; bottom: parent.bottom }
         clip: true
         Item {
             id: pageStrip
@@ -225,7 +136,9 @@ ApplicationWindow {
                 objectName: "homePage"
                 width: pages.width; height: pages.height
                 contentWidth: availableWidth
-                enabled: !win.settingsOpen
+                enabled: !win.settingsOpen && !win.modelOpen
+                opacity: win.modelOpen ? 0 : 1
+                Behavior on opacity { enabled: win.motion; OpacityAnimator { duration: win.duration(180); easing.type: Easing.OutCubic } }
                 clip: true
                 ColumnLayout {
                     width: home.availableWidth - 48
@@ -235,16 +148,11 @@ ApplicationWindow {
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 16
-                        Rectangle {
-                            width: 52; height: 52; radius: 18; color: win.tonal
-                            Label { anchors.centerIn: parent; text: "↑"; font.pixelSize: 30; color: win.accent }
-                        }
                         ColumnLayout {
                             Layout.fillWidth: true
-                            Heading { text: win.tr("一键内网穿透"); font.pixelSize: 26 }
+                            Heading { text: win.tr("把本地服务，分享出去"); font.pixelSize: 24 }
                             Caption { text: win.tr("嗨，想把你的小小世界分享出去吗？交给我吧♪") }
                         }
-                        Action { objectName: "settingsButton"; text: win.tr("设置 ⚙"); onClicked: win.settingsOpen = true }
                     }
                     RowLayout {
                         Layout.fillWidth: true
@@ -413,6 +321,15 @@ ApplicationWindow {
                 }
             }
 
+            ModelSharePage {
+                objectName: "modelSharePage"
+                ui: win; share: modelShare
+                width: pages.width; height: pages.height
+                enabled: win.modelOpen && !win.settingsOpen
+                opacity: win.modelOpen ? 1 : 0
+                Behavior on opacity { enabled: win.motion; OpacityAnimator { duration: win.duration(180); easing.type: Easing.OutCubic } }
+            }
+
             ScrollView {
                 id: settings
                 objectName: "settingsPage"
@@ -431,7 +348,7 @@ ApplicationWindow {
                         Action { objectName: "backButton"; text: win.tr("← 回去吧"); quiet: true; onClicked: win.settingsOpen = false }
                         ColumnLayout {
                             Layout.fillWidth: true
-                            Heading { text: win.tr("偏爱，由你决定"); font.pixelSize: 26 }
+                            Heading { text: win.tr("偏爱，由你决定"); font.pixelSize: 22 }
                             Caption { text: win.tr("换一抹颜色，调一调节奏。最舒服的模样，当然要听你的呀♪") }
                         }
                     }

@@ -1,0 +1,51 @@
+{
+  "project": "QWindowKit",
+  "repository": "https://github.com/stdware/qwindowkit",
+  "commit": "7416119514962562e1e3ed131f2a5f4e1d9e7426",
+  "license": "Apache-2.0",
+  "scope": "QML example caption button and four example SVG assets only; the native QWindowKit C++ library is not bundled.",
+  "files": [
+    {
+      "path": "qml/vendor/qwindowkit/QWKButton.qml",
+      "upstream_path": "examples/qml/QWKButton.qml",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/examples/qml/QWKButton.qml",
+      "sha256": "3ecef52f6f018e86582c28065651120eeb5c34298b88442315cce64221851ab8",
+      "bytes": 875
+    },
+    {
+      "path": "qml/vendor/qwindowkit/LICENSE",
+      "upstream_path": "LICENSE",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/LICENSE",
+      "sha256": "7c206d76878f26d737fc633dc221754047963640900f53bf3fc31a8836353b53",
+      "bytes": 11447
+    },
+    {
+      "path": "assets/window-controls/minimize.svg",
+      "upstream_path": "examples/shared/resources/window-bar/minimize.svg",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/examples/shared/resources/window-bar/minimize.svg",
+      "sha256": "70322c98fac96361723c51aa5409e8413392ee6be7248adf5c078b9b52c29d01",
+      "bytes": 467
+    },
+    {
+      "path": "assets/window-controls/maximize.svg",
+      "upstream_path": "examples/shared/resources/window-bar/maximize.svg",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/examples/shared/resources/window-bar/maximize.svg",
+      "sha256": "c68670f37fe307297e34d2f17185964fa69faa49a8d233349208adddb97a2169",
+      "bytes": 328
+    },
+    {
+      "path": "assets/window-controls/restore.svg",
+      "upstream_path": "examples/shared/resources/window-bar/restore.svg",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/examples/shared/resources/window-bar/restore.svg",
+      "sha256": "a8e38e47aad92b7ef70a90fbc1725c52bee0ba80a180d6aeaef511e6e0c9a640",
+      "bytes": 559
+    },
+    {
+      "path": "assets/window-controls/close.svg",
+      "upstream_path": "examples/shared/resources/window-bar/close.svg",
+      "source": "https://raw.githubusercontent.com/stdware/qwindowkit/7416119514962562e1e3ed131f2a5f4e1d9e7426/examples/shared/resources/window-bar/close.svg",
+      "sha256": "fa70ea1cf1025ae51600477c769e6c9bd15b09577196b0d7133faacf70103c0c",
+      "bytes": 444
+    }
+  ]
+}

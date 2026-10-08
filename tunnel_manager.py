@@ -238,6 +238,9 @@ class TunnelManager(QObject):
         session = self.sessions[key]
         if self.closing or session.active:
             return
+        from model_share import model_binding_matches
+        model = self.profiles[key].get('modelService')
+        session.api_target = model['host'] if model_binding_matches(model, session) else None
         # Reject collisions before starting a second connector or remote proxy.
         for other in self.sessions.values():
             if other is session or not other.active:
@@ -320,6 +323,8 @@ class TunnelManager(QObject):
     @Slot()
     def close(self):
         if self.closing: return
+        if 'model_share' in self.__dict__:
+            self.model_share.close()
         self.save_timer.stop()
         self.save()
         self.closing = True

@@ -256,8 +256,10 @@ def listening_ports():
     return sorted(ports)
 
 
-def local_endpoint(port, cancel):
-    for host in ("127.0.0.1", "::1"):
+def local_endpoint(port, cancel, target=None):
+    if target is not None and target not in ("127.0.0.1", "::1"):
+        raise ValueError("模型 API 仅允许连接本机回环地址。")
+    for host in ((target,) if target else ("127.0.0.1", "::1")):
         check_cancel(cancel)
         try:
             with socket.create_connection((host, port), timeout=1):
@@ -535,10 +537,16 @@ class TunnelCore:
 
     def run(self, run_id, config, cancel):
         emit = lambda kind, value: self.emit(run_id, kind, value)
+        model_proxy = None
         try:
-            host = local_endpoint(config["port"], cancel)
+            host = (local_endpoint(config["port"], cancel, config["api_host"])
+                    if config.get("api_host") else local_endpoint(config["port"], cancel))
             config["local_host"] = host
             emit("log", f"找到你啦♪ 本地服务可连接：{host}:{config['port']}")
+            if config.get("api_host"):
+                from model_proxy import ModelProxy
+                model_proxy = ModelProxy(host, config["port"], cancel).start()
+                config = dict(config, api_port=config["port"], port=model_proxy.port, local_host="127.0.0.1")
 
             if config.get("cloudflare_fixed"):
                 engines = ["cloudflared"]
@@ -573,6 +581,8 @@ class TunnelCore:
         except Exception as exc:
             emit("error", error_text(exc))
         finally:
+            if model_proxy is not None:
+                model_proxy.close()
             emit("done", None)
 
     def supervise(self, engine, binary, config, cancel, emit):
@@ -762,7 +772,7 @@ class TunnelCore:
                         last_health = now
                         try:
                             with socket.create_connection(
-                                (host, config["port"]), timeout=1
+                                (config.get("api_host", host), config.get("api_port", config["port"])), timeout=1
                             ):
                                 available = True
                         except OSError:

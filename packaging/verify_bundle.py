@@ -10,6 +10,12 @@ def verify(executable):
     executable = Path(executable)
     root = Path(__file__).resolve().parents[1]
     archive = CArchiveReader(str(executable))
+    python_archive = archive.open_embedded_archive('PYZ.pyz')
+    for name in ('model_api', 'model_share', 'model_proxy', 'tunnel_core', 'tunnel_manager', 'qt_ui', 'i18n', 'window_chrome'):
+        assert name in python_archive.toc, name
+        frozen = python_archive.extract(name)
+        expected = compile((root / (name + '.py')).read_bytes(), frozen.co_filename, 'exec', optimize=0)
+        assert frozen == expected, f'Final source differs from the bundled module: {name}'
     names = {name.replace('\\', '/'): name for name in archive.toc}
     for folder in ('qml', 'assets', 'third_party_licenses'):
         for source in (root / folder).rglob('*'):
